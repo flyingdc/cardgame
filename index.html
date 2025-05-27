@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <title>撲克牌挑選與問答遊戲</title>
+  <style>
+    body { font-family: sans-serif; background: #f0f0f0; }
+    .deck, .selected { display: flex; flex-wrap: wrap; margin: 20px 0; }
+    .card {
+      width: 60px; height: 90px; margin: 5px; background: white; border: 1px solid #aaa;
+      border-radius: 8px; display: flex; flex-direction: column; align-items: center;
+      justify-content: center; font-size: 22px; cursor: pointer; user-select: none;
+      box-shadow: 1px 1px 3px #ccc;
+      transition: box-shadow 0.2s, transform 0.2s;
+      position: relative;
+    }
+    .card.selected {
+      border: 2px solid #2196f3;
+      box-shadow: 2px 2px 6px #2196f355;
+      transform: scale(1.025);
+      z-index: 1;
+    }
+    .card-index {
+      position: absolute;
+      top: 3px; left: 5px;
+      background: #2196f3;
+      color: #fff;
+      font-size: 13px;
+      padding: 0 6px;
+      border-radius: 10px;
+      pointer-events: none;
+    }
+    .card.dragging { opacity: 0.5; }
+    .suit-heart, .suit-diamond { color: #e53935; }
+    .suit-club, .suit-spade { color: #222; }
+    .selected { min-height: 100px; border: 2px dashed #bbb; padding: 10px; }
+    button { margin: 10px 0; padding: 8px 20px; font-size: 16px; }
+    .qa-block { margin: 20px 0; padding: 16px; background: #fff; border-radius: 8px; box-shadow: 1px 1px 6px #ccc; }
+    .record-area {
+      display: flex;
+      gap: 24px;
+      margin: 20px 0;
+    }
+    .record-block {
+      flex: 1;
+      padding: 16px;
+      background: #e3f2fd;
+      border-radius: 8px;
+      min-height: 240px;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+    .record-block h4 { margin-top: 0; }
+    .record-item { margin-bottom: 8px; }
+    .note-block {
+      flex: 1;
+      padding: 16px;
+      background: #fffde7;
+      border-radius: 8px;
+      min-height: 240px;
+      max-height: 300px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+    }
+    .note-block h4 { margin-top: 0; }
+    .note-row-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .note-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      justify-content: flex-start;
+      margin-bottom: 0;
+    }
+    .note-label {
+      width: 26px;
+      text-align: center;
+      font-weight: bold;
+      font-size: 16px;
+    }
+    .note-select {
+      font-size: 18px;
+      padding: 2px 6px;
+      border-radius: 5px;
+      border: 1px solid #bbb;
+      margin-right: 2px;
+    }
+    .note-cross-row {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-top: 12px;
+      justify-content: flex-start;
+    }
+    .cross-btn {
+      width: 38px; height: 38px;
+      border-radius: 12px;
+      border: 1.5px solid #bbb;
+      font-size: 18px;
+      background: #fff;
+      cursor: pointer;
+      position: relative;
+      transition: background 0.15s, color 0.15s;
+      margin: 2px;
+    }
+    .cross-btn.crossed {
+      background: #bdbdbd;
+      color: #fff;
+      text-decoration: line-through;
+      font-weight: bold;
+    }
+    .cross-btn:active { background: #90caf9; }
+    .answer-input-row { margin-top: 10px; }
+    .answer-input-row input { width: 180px; font-size: 16px; }
+    .answer-input-row button { padding: 4px 12px; font-size: 15px; margin-left: 5px; }
+    .toggle-btn {
+      margin-left: 15px;
+      padding: 8px 24px;
+      font-size: 16px;
+      border-radius: 16px;
+      background: #2196f3;
+      color: #fff;
+      border: none;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .toggle-btn.active {
+      background: #1565c0;
+      color: #fff;
+    }
+    .disabled-area {
+      pointer-events: none;
+      opacity: 1 !important;
+      filter: none !important;
+    }
+  </style>
+</head>
+<body>
+  <h2>撲克牌挑選與問答遊戲</h2>
+  <p>請從下方牌堆選出8張，拖曳排序後按「開始」，同花色需由小到大(A=1, J=11, Q=12, K=13)。</p>
+  <div id="deckArea">
+    <div class="deck" id="deck"></div>
+    <h3>已選擇的牌（可拖曳調整順序，點擊可移除）</h3>
+    <div class="selected" id="selected" ondragover="event.preventDefault()"></div>
+    <button id="resetBtn">重設</button>
+    <button id="startBtn" class="toggle-btn">開始</button>
+  </div>
+
+  <hr>
+  <div class="qa-block">
+    <label for="question">選擇問題：</label>
+    <select id="question">
+      <optgroup label="💠 SUM（加總）">
+        <option value="sum3">選擇3張卡牌的位置，這些卡牌的數值總和是多少？</option>
+        <option value="sumSuit">選擇1種花色，這些卡牌的數值總和是多少？</option>
+        <option value="sumLetter">英文牌的數值總和是多少？</option>
+        <option value="sumNumber">數字牌的數值總和是多少？</option>
+      </optgroup>
+      <optgroup label="🔷 COUNT（計數）">
+        <option value="countLetter">英文牌總共有幾張？</option>
+        <option value="countNumber">數字牌總共有幾張？</option>
+        <option value="countOne">選擇1個數字或1個字母，該種類卡牌有幾張？</option>
+      </optgroup>
+      <optgroup label="🟩 POSITION（位置）">
+        <option value="posSuit">選擇1種花色，此花色出現在哪幾個位置？</option>
+        <option value="posSame">相同數字、相同英文字母的卡牌出現在哪幾個位置？</option>
+        <option value="posSeq">連續數字出現在哪幾個位置（包括重複數字）？</option>
+        <option value="posMaxMin">最大數字或最小數字的卡牌在哪幾個位置？</option>
+      </optgroup>
+    </select>
+    <span id="params"></span>
+    <button id="askBtn">詢問</button>
+    <div class="answer-input-row" id="answerInputRow" style="display:none;">
+      <label for="answerInput">請輸入答案：</label>
+      <input type="text" id="answerInput">
+      <button id="submitAnswerBtn">確定</button>
+      <button id="cancelAnswerBtn">取消</button>
+    </div>
+  </div>
+  <div class="record-area">
+    <div class="record-block" id="recordBlock">
+      <h4>問答紀錄</h4>
+    </div>
+    <div class="note-block" id="noteBlock">
+      <h4>我的筆記</h4>
+      <div class="note-row-group" id="noteRows"></div>
+      <div class="note-cross-row" id="crossRow"></div>
+    </div>
+  </div>
+  <script>
+    // 撲克牌資料
+    const suits = [
+      {name: 'spade', symbol: '♠', class: 'suit-spade'},
+      {name: 'heart', symbol: '♥', class: 'suit-heart'},
+      {name: 'club', symbol: '♣', class: 'suit-club'},
+      {name: 'diamond', symbol: '♦', class: 'suit-diamond'}
+    ];
+    function numToFace(n) {
+      if (n === 1) return 'A';
+      if (n === 11) return 'J';
+      if (n === 12) return 'Q';
+      if (n === 13) return 'K';
+      return n;
+    }
+    function faceToNum(f) {
+      if (f === 'A') return 1;
+      if (f === 'J') return 11;
+      if (f === 'Q') return 12;
+      if (f === 'K') return 13;
+      return parseInt(f, 10);
+    }
+    // 固定順序一副牌
+    function buildDeck() {
+      let deck = [];
+      for (let s = 0; s < suits.length; s++) {
+        for (let n = 1; n <= 13; n++) {
+          deck.push({
+            suit: suits[s].name,
+            suitSymbol: suits[s].symbol,
+            suitClass: suits[s].class,
+            value: n,
+            label: numToFace(n)
+          });
+        }
+      }
+      return deck;
+    }
+    let deck = [];
+    let selected = [];
+    let started = false;
+
+    // 渲染牌堆
+    function renderDeck() {
+      const deckDiv = document.getElementById('deck');
+      deckDiv.innerHTML = '';
+      deck.forEach((card, idx) => {
+        const c = document.createElement('div');
+        c.className = `card ${card.suitClass}`;
+        c.innerHTML = `<div>${card.suitSymbol}</div><div>${card.label}</div>`;
+        c.onclick = () => {
+          if (!started && selected.length < 8 && !selected.includes(card)) {
+            selected.push(card);
+            renderSelected();
+            renderDeck();
+          }
+        };
+        if (selected.includes(card)) c.classList.add('selected');
+        if (started) c.style.pointerEvents = 'none';
+        deckDiv.appendChild(c);
+      });
+    }
+    // 渲染已選牌（加上index標示）
+    function renderSelected() {
+      const selDiv = document.getElementById('selected');
+      selDiv.innerHTML = '';
+      selected.forEach((card, idx) => {
+        const c = document.createElement('div');
+        c.className = `card ${card.suitClass}`;
+        c.draggable = !started;
+        c.innerHTML = `<span class="card-index">${idx+1}</span><div>${card.suitSymbol}</div><div>${card.label}</div>`;
+        if (!started) {
+          c.ondragstart = e => {
+            e.dataTransfer.setData('text/plain', idx);
+            c.classList.add('dragging');
+          };
+          c.ondragend = e => c.classList.remove('dragging');
+          c.ondragover = e => e.preventDefault();
+          c.ondrop = e => {
+            e.preventDefault();
+            const from = parseInt(e.dataTransfer.getData('text/plain'));
+            const to = idx;
+            if (from !== to) {
+              const temp = selected[from];
+              selected.splice(from, 1);
+              selected.splice(to, 0, temp);
+              renderSelected();
+            }
+          };
+          c.onclick = () => {
+            selected.splice(idx, 1);
+            renderSelected();
+            renderDeck();
+          };
+        } else {
+          c.ondragstart = null;
+          c.ondragend = null;
+          c.ondragover = null;
+          c.ondrop = null;
+          c.onclick = null;
+        }
+        selDiv.appendChild(c);
+      });
+    }
+    function resetGame() {
+      deck = buildDeck();
+      selected = [];
+      started = false;
+      document.getElementById('startBtn').classList.remove('active');
+      renderDeck();
+      renderSelected();
+      renderParams();
+      renderNote();
+      document.getElementById('deckArea').classList.remove('disabled-area');
+    }
+    document.getElementById('resetBtn').onclick = resetGame;
+
+    // 問答互動
+    const recordBlock = document.getElementById('recordBlock');
+    const paramsDiv = document.getElementById('params');
+    const questionSelect = document.getElementById('question');
+    const askBtn = document.getElementById('askBtn');
+    const answerInputRow = document.getElementById('answerInputRow');
+    const answerInput = document.getElementById('answerInput');
+    const submitAnswerBtn = document.getElementById('submitAnswerBtn');
+    const cancelAnswerBtn = document.getElementById('cancelAnswerBtn');
+    let paramInputs = [];
+    let lastQuestionText = '';
+
+    function renderParams() {
+      paramsDiv.innerHTML = '';
+      paramInputs = [];
+      const q = questionSelect.value;
+      const sampleCards = selected;
+      if (q === 'sum3') {
+        for (let i = 0; i < 3; i++) {
+          const sel = document.createElement('select');
+          for (let j = 1; j <= sampleCards.length; j++) {
+            const opt = document.createElement('option');
+            opt.value = j-1;
+            opt.textContent = j;
+            sel.appendChild(opt);
+          }
+          paramsDiv.appendChild(document.createTextNode(`位置${i+1}:`));
+          paramsDiv.appendChild(sel);
+          paramInputs.push(sel);
+        }
+      } else if (q === 'sumSuit' || q === 'posSuit') {
+        const sel = document.createElement('select');
+        suits.forEach(s => {
+          const opt = document.createElement('option');
+          opt.value = s.name;
+          opt.textContent = s.symbol;
+          sel.appendChild(opt);
+        });
+        paramsDiv.appendChild(document.createTextNode('花色:'));
+        paramsDiv.appendChild(sel);
+        paramInputs.push(sel);
+      } else if (q === 'countOne' || q === 'posSame') {
+        const sel = document.createElement('select');
+        for (let n = 1; n <= 13; n++) {
+          let label = n;
+          if (n === 1) label = 'A';
+          if (n === 11) label = 'J';
+          if (n === 12) label = 'Q';
+          if (n === 13) label = 'K';
+          sel.appendChild(new Option(label, n));
+        }
+        paramsDiv.appendChild(document.createTextNode('數字或字母:'));
+        paramsDiv.appendChild(sel);
+        paramInputs.push(sel);
+      } else if (q === 'posSeq') {
+        const input = document.createElement('input');
+        input.type = 'number';
+        input.min = 1;
+        input.max = 13;
+        input.placeholder = '起始數字(1~13)';
+        paramsDiv.appendChild(input);
+        paramInputs.push(input);
+      } else if (q === 'posMaxMin') {
+        const sel = document.createElement('select');
+        sel.appendChild(new Option('最大', 'max'));
+        sel.appendChild(new Option('最小', 'min'));
+        paramsDiv.appendChild(sel);
+        paramInputs.push(sel);
+      }
+    }
+    questionSelect.onchange = renderParams;
+
+    // 問題文字產生（不計算答案）
+    function getQuestionText() {
+      const q = questionSelect.value;
+      const sampleCards = selected;
+      let questionText = questionSelect.options[questionSelect.selectedIndex].text;
+      if (q === 'sum3') {
+        if (sampleCards.length < 3) {
+          alert('請先選擇至少3張卡牌！');
+          return null;
+        }
+        const idxs = paramInputs.map(sel => Number(sel.value));
+        questionText += `（第${idxs.map(i=>i+1).join('、')}張）`;
+      } else if (q === 'sumSuit' || q === 'posSuit') {
+        const suit = paramInputs[0].value;
+        const s = suits.find(s=>s.name===suit);
+        questionText += `（${s.symbol}）`;
+      } else if (q === 'countOne' || q === 'posSame') {
+        const n = Number(paramInputs[0].value);
+        let label = n;
+        if (n === 1) label = 'A';
+        if (n === 11) label = 'J';
+        if (n === 12) label = 'Q';
+        if (n === 13) label = 'K';
+        questionText += `（${label}）`;
+      } else if (q === 'posSeq') {
+        const start = Number(paramInputs[0].value);
+        if (!start || start < 1 || start > 13) {
+          alert('請輸入1~13的起始數字');
+          return null;
+        }
+        questionText += `（起始數字${start}）`;
+      } else if (q === 'posMaxMin') {
+        const type = paramInputs[0].value;
+        questionText += type === 'max' ? '（最大）' : '（最小）';
+      }
+      return questionText;
+    }
+
+    // 問題詢問流程
+    askBtn.onclick = function() {
+      if (selected.length === 0) {
+        alert('請先選擇至少一張卡牌！');
+        return;
+      }
+      const questionText = getQuestionText();
+      if (!questionText) return;
+      lastQuestionText = questionText;
+      answerInput.value = '';
+      answerInputRow.style.display = '';
+      answerInput.focus();
+    };
+    submitAnswerBtn.onclick = function() {
+      const answer = answerInput.value.trim();
+      if (!answer) {
+        alert('請輸入答案');
+        return;
+      }
+      const div = document.createElement('div');
+      div.className = 'record-item';
+      div.innerHTML = `<b>Q${recordBlock.querySelectorAll('.record-item').length+1}.</b> ${lastQuestionText}<br><span style="color:#1565c0">${answer}</span>`;
+      recordBlock.appendChild(div);
+      recordBlock.scrollTop = recordBlock.scrollHeight;
+      answerInputRow.style.display = 'none';
+      answerInput.value = '';
+    };
+    cancelAnswerBtn.onclick = function() {
+      answerInputRow.style.display = 'none';
+      answerInput.value = '';
+    };
+
+    // 筆記欄功能
+    const noteRowsDiv = document.getElementById('noteRows');
+    const crossRowDiv = document.getElementById('crossRow');
+    let noteData = [];
+    let crossData = [];
+    function renderNote() {
+      if (!noteData.length) {
+        noteData = [];
+        for (let i = 0; i < 8; i++) {
+          noteData.push({suit: '', value: ''});
+        }
+      }
+      if (!crossData.length) {
+        crossData = [];
+        for (let i = 1; i <= 13; i++) {
+          crossData.push(false);
+        }
+      }
+      // 8個位置 row 橫列排列：index | 數字 | 花色
+      noteRowsDiv.innerHTML = '';
+      for (let i = 0; i < 8; i++) {
+        const row = document.createElement('div');
+        row.className = 'note-row';
+        // index
+        row.innerHTML = `<span class="note-label">${i+1}</span>`;
+        // 數字選單
+        const numSel = document.createElement('select');
+        numSel.className = 'note-select';
+        numSel.innerHTML = `<option value="">?</option>`;
+        for (let n = 1; n <= 13; n++) {
+          let label = numToFace(n);
+          const opt = document.createElement('option');
+          opt.value = n;
+          opt.textContent = label;
+          if (noteData[i].value == n) opt.selected = true;
+          numSel.appendChild(opt);
+        }
+        numSel.onchange = function() {
+          noteData[i].value = this.value;
+        };
+        row.appendChild(numSel);
+        // 花色選單
+        const suitSel = document.createElement('select');
+        suitSel.className = 'note-select';
+        suitSel.innerHTML = `<option value="">?</option>`;
+        suits.forEach(s => {
+          const opt = document.createElement('option');
+          opt.value = s.name;
+          opt.textContent = s.symbol;
+          if (noteData[i].suit === s.name) opt.selected = true;
+          suitSel.appendChild(opt);
+        });
+        suitSel.onchange = function() {
+          noteData[i].suit = this.value;
+        };
+        row.appendChild(suitSel);
+        noteRowsDiv.appendChild(row);
+      }
+      // 劃掉列
+      crossRowDiv.innerHTML = '';
+      for (let n = 1; n <= 13; n++) {
+        let label = numToFace(n);
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'cross-btn' + (crossData[n-1] ? ' crossed' : '');
+        btn.textContent = label;
+        btn.onclick = function() {
+          crossData[n-1] = !crossData[n-1];
+          renderNote();
+        };
+        crossRowDiv.appendChild(btn);
+      }
+    }
+
+    // 開始按鈕
+    document.getElementById('startBtn').onclick = function() {
+      if (started) {
+        // 回到可編輯狀態
+        started = false;
+        this.classList.remove('active');
+<!--        document.getElementById('deckArea').classList.remove('disabled-area');-->
+        renderDeck();
+        renderSelected();
+        return;
+      }
+      if (selected.length !== 8) {
+        alert('請先選滿8張牌才能開始！');
+        return;
+      }
+      // 自動檢查
+      const suitGroups = {};
+      selected.forEach((card, idx) => {
+        if (!suitGroups[card.suit]) suitGroups[card.suit] = [];
+        suitGroups[card.suit].push({value: card.value, pos: idx});
+      });
+      for (const suit in suitGroups) {
+        const arr = suitGroups[suit];
+        for (let i = 1; i < arr.length; i++) {
+          if (arr[i].pos < arr[i-1].pos) {
+            alert(`錯誤: ${suits.find(s=>s.name===suit).symbol} 花色的牌順序錯誤!`);
+            return;
+          }
+          if (arr[i].value < arr[i-1].value) {
+            alert(`錯誤: ${suits.find(s=>s.name===suit).symbol} 花色的牌數字需由小到大!`);
+            return;
+          }
+        }
+      }
+      started = true;
+      this.classList.add('active');
+<!--      document.getElementById('deckArea').classList.add('disabled-area');-->
+      renderDeck();
+      renderSelected();
+    };
+
+    // 初始化
+    resetGame();
+  </script>
+</body>
+</html>
