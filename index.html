@@ -2,7 +2,7 @@
 <html lang="zh-Hant">
 <head>
   <meta charset="UTF-8">
-  <title>撲克牌＆解謎遊戲</title>
+  <title>撲克牌挑選與問答遊戲</title>
   <style>
     body { font-family: sans-serif; background: #f0f0f0; }
     .deck, .selected { display: flex; flex-wrap: wrap; margin: 20px 0; }
@@ -175,9 +175,9 @@
   </style>
 </head>
 <body>
-  <h2>撲克牌＆解謎遊戲</h2>
+  <h2>撲克牌解謎遊戲</h2>
   <hr>
-  <h3>選擇自己的牌型</h3>
+  <h3>1. 選擇自己的牌型</h3>
   <p> 請從下方牌堆選出8張，拖曳排序後按「開始」，同花色需由小到大(A=1, J=11, Q=12, K=13)。</p>
   <div id="deckArea">
     <div class="deck" id="deck"></div>
@@ -185,6 +185,7 @@
     <div class="selected" id="selected" ondragover="event.preventDefault()"></div>
     <button id="resetBtn" class="reset-btn">重設</button>
     <button id="startBtn" class="toggle-btn">開始</button>
+    <span id="autoAnswer" style="margin-left:20px; font-size:15px; color:#1565c0;"></span>
   </div>
   <hr>
   <div class="note-block" id="noteBlock">
@@ -460,7 +461,69 @@
       }
       return questionText;
     }
+    function showAutoAnswers() {
+      const autoAnswer = document.getElementById('autoAnswer');
+      if (!started) {
+        autoAnswer.textContent = '';
+        return;
+      }
+      // 1. 最大和最小的位置
+      const values = selected.map(c => c.value);
+      const max = Math.max(...values);
+      const min = Math.min(...values);
+      const maxPos = selected.map((c,i) => c.value===max ? i+1 : null).filter(x=>x);
+      const minPos = selected.map((c,i) => c.value===min ? i+1 : null).filter(x=>x);
+      // 合併最大最小位置（去重、排序）
+      const maxMinPos = [...new Set([...maxPos, ...minPos])].sort((a,b)=>a-b);
+      // 2. 連續數字位置（所有順序的位置，合併不分組）
+      const cardsWithPos = selected.map((card, index) => ({
+        value: card.value,
+        originalPos: index + 1  // 原始位置從1開始
+      })).sort((a, b) => a.value - b.value);
 
+      const sequences = [];
+      let currentSeq = [cardsWithPos[0]];
+      for (let i = 1; i < cardsWithPos.length; i++) {
+        if (cardsWithPos[i].value === currentSeq[currentSeq.length - 1].value + 1) {
+          currentSeq.push(cardsWithPos[i]);
+        } else {
+          if (currentSeq.length >= 2) sequences.push(currentSeq);
+          currentSeq = [cardsWithPos[i]];
+        }
+      }
+      if (currentSeq.length >= 2) sequences.push(currentSeq);
+
+      // 轉換為位置顯示格式
+      let sequenceDisplays = sequences.map(seq => {
+        const positions = seq.map(c => c.originalPos).sort((a, b) => a - b);
+        return positions.join('、');
+      });
+
+
+      // 3. 相同數字和相同花牌的位置
+      let numMap = {};
+      selected.forEach((c, i) => {
+        numMap[c.value] = numMap[c.value] || [];
+        numMap[c.value].push(i + 1);
+      });
+      let sameNumOrLetter = Object.entries(numMap)
+        .filter(([num, v]) => v.length > 1)
+        .map(([num, v]) => `${v.join('、')}`)
+        .join('、');
+      if (!sameNumOrLetter) sameNumOrLetter = '無';
+
+      // 組答案
+      let html = `
+        <div>
+          <b>最大最小值位置：</b>${maxMinPos.join('、')}（最大：${numToFace(max)}，最小：${numToFace(min)}）<br>
+          <b>連續數字位置：</b>
+          ${sequenceDisplays.length ? sequenceDisplays.join('、') : '無'}<br>
+          <b>相同數字或英文字：</b>
+          ${sameNumOrLetter}
+        </div>
+      `;
+      autoAnswer.innerHTML = html;
+    }
     // 問題詢問流程
     askBtn.onclick = function() {
       if (selected.length === 0) {
@@ -576,6 +639,7 @@
 <!--        document.getElementById('deckArea').classList.remove('disabled-area');-->
         renderDeck();
         renderSelected();
+        showAutoAnswers();
         return;
       }
       if (selected.length !== 8) {
@@ -607,6 +671,7 @@
 <!--      document.getElementById('deckArea').classList.add('disabled-area');-->
       renderDeck();
       renderSelected();
+      showAutoAnswers();
     };
 
     // 初始化
